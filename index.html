@@ -1,1 +1,117 @@
-
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>SmartCart Scanner Test</title>
+<style>
+body{font-family:Arial,sans-serif;background:#f4f7f5;margin:0;padding:20px;color:#183c2c}
+main{max-width:480px;margin:auto}
+h1{color:#147d50}
+button,input{font-size:17px;padding:12px;border-radius:8px;margin:5px 0}
+button{background:#147d50;color:white;border:0;width:100%}
+input{box-sizing:border-box;width:100%;border:1px solid #aaa}
+video{width:100%;background:#222;border-radius:12px;max-height:300px}
+.card{background:white;padding:15px;border-radius:12px;margin-top:15px}
+li{margin:10px 0}
+#status{font-weight:bold}
+</style>
+</head>
+<body>
+<main>
+<h1>🛒 SmartCart Scanner</h1>
+<p>Scan a grocery barcode with your phone camera.</p>
+<video id="camera" autoplay muted playsinline></video>
+<button id="start">Start Camera & Scan</button>
+<button id="stop">Stop Camera</button>
+<p id="status">Camera not started.</p>
+<div class="card">
+<h3>Add item</h3>
+<label>Barcode</label>
+<input id="barcode" placeholder="Scan or type barcode">
+<label>Item name</label>
+<input id="item" placeholder="Example: Milk">
+<label>Price ($)</label>
+<input id="price" type="number" min="0" step="0.01" placeholder="Example: 3.99">
+<button id="add">Add to Cart</button>
+</div>
+<div class="card">
+<h3>My Cart</h3>
+<ul id="items"></ul>
+<h2>Total: $<span id="total">0.00</span></h2>
+<button id="clear">Clear Cart</button>
+</div>
+</main>
+<script>
+const video=document.getElementById('camera');
+const status=document.getElementById('status');
+const barcode=document.getElementById('barcode');
+const item=document.getElementById('item');
+const price=document.getElementById('price');
+const items=document.getElementById('items');
+const total=document.getElementById('total');
+let stream=null,detector=null,scanning=false,lastCode='',lastTime=0;
+let cart=[];
+async function scanLoop(){
+ if(!scanning)return;
+ try{
+  const found=await detector.detect(video);
+  if(found.length){
+   const code=found[0].rawValue;
+   if(code && (code!==lastCode || Date.now()-lastTime>5000)){
+    lastCode=code;lastTime=Date.now();
+    barcode.value=code;
+    status.textContent='Barcode detected: '+code+'. Enter item name and price, then add.';
+    if(navigator.vibrate)navigator.vibrate(100);
+   }
+  }
+ }catch(e){}
+ if(scanning)setTimeout(scanLoop,350);
+}
+document.getElementById('start').onclick=async()=>{
+ try{
+  if(!('BarcodeDetector' in window)){
+   status.textContent='Automatic barcode scanning is not supported in this browser. You can still enter barcodes manually.';
+   return;
+  }
+  const formats=await BarcodeDetector.getSupportedFormats();
+  detector=new BarcodeDetector({formats:formats.filter(f=>['ean_13','ean_8','upc_a','upc_e','code_128'].includes(f))});
+  if(stream)stream.getTracks().forEach(t=>t.stop());
+  stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+  video.srcObject=stream;
+  await video.play();
+  scanning=true;
+  status.textContent='Camera ready. Point at a barcode.';
+  scanLoop();
+ }catch(e){status.textContent='Camera error: '+e.message;}
+};
+document.getElementById('stop').onclick=()=>{
+ scanning=false;
+ if(stream)stream.getTracks().forEach(t=>t.stop());
+ stream=null;video.srcObject=null;
+ status.textContent='Camera stopped.';
+};
+document.getElementById('add').onclick=()=>{
+ const name=item.value.trim()||'Item '+(barcode.value.trim()||'unknown');
+ const value=Number(price.value);
+ if(price.value.trim()===''||!Number.isFinite(value)||value<0){alert('Enter a valid price.');return;}
+ cart.push({name,code:barcode.value.trim(),price:value});
+ render();
+ item.value='';price.value='';barcode.value='';
+ status.textContent='Item added. Ready for next barcode.';
+};
+document.getElementById('clear').onclick=()=>{
+ if(confirm('Remove all items?')){cart=[];render();}
+};
+function render(){
+ items.innerHTML='';
+ for(const entry of cart){
+  const li=document.createElement('li');
+  li.textContent=entry.name+' — $'+entry.price.toFixed(2);
+  items.appendChild(li);
+ }
+ total.textContent=cart.reduce((sum,x)=>sum+x.price,0).toFixed(2);
+}
+</script>
+</body>
+</html>
